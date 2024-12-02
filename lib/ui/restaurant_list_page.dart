@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:submission_1_restaurant_app/common/styles.dart';
 import 'package:submission_1_restaurant_app/data/model/restaurant.dart';
+import 'package:submission_1_restaurant_app/provider/restaurants_provider.dart';
 import 'package:submission_1_restaurant_app/ui/restaurant_detail_page.dart';
+import 'package:submission_1_restaurant_app/utils/result_state.dart';
 
 class RestaurantListPage extends StatefulWidget {
   static const routeName = '/restaurant_list';
@@ -11,83 +15,115 @@ class RestaurantListPage extends StatefulWidget {
 }
 
 class _RestaurantListPageState extends State<RestaurantListPage> {
-  List<Restaurant> _restaurants = [];
-  List<Restaurant> _filteredRestaurants = [];
-
-  Future<void> _loadRestaurants() async {
-    final String jsonString = await DefaultAssetBundle.of(context)
-        .loadString('assets/local_restaurant.json');
-    final List<Restaurant> restaurants = parseRestaurants(jsonString);
-    setState(() {
-      _restaurants = restaurants;
-      _filteredRestaurants = restaurants;
-    });
-  }
-
-  void _filterRestaurants(String query) {
-    if (query.isEmpty) {
-      setState(() {
-        _filteredRestaurants = _restaurants;
-      });
-    } else {
-      setState(() {
-        _filteredRestaurants = _restaurants
-            .where((restaurant) =>
-                restaurant.name.toLowerCase().contains(query.toLowerCase()))
-            .toList();
-      });
-    }
-  }
-
   @override
   void initState() {
     super.initState();
-    _loadRestaurants();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _onRefresh();
+    });
+  }
+
+  Future<void> _onRefresh() async {
+    await Provider.of<RestaurantsProvider>(context, listen: false)
+        .fetchAllRestaurants();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        flexibleSpace: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              style: const TextStyle(fontSize: 18),
-              decoration: const InputDecoration(
-                hintText: 'Cari restoran...',
-                border: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.black),
-                ),
-                focusedBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.black),
-                ),
-                enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: Colors.black),
-                ),
-              ),
-              onChanged: _filterRestaurants,
-            ),
+      body: SafeArea(
+        child: RefreshIndicator.adaptive(
+          color: secondaryColor,
+          onRefresh: _onRefresh,
+          child: Consumer<RestaurantsProvider>(
+            builder: (context, provider, _) {
+              if (provider.state == ResultState.loading) {
+                return const Center(
+                  child: CircularProgressIndicator(color: secondaryColor),
+                );
+              } else if (provider.state == ResultState.hasData) {
+                return ListView(
+                  children: [
+                    _buildSearch(),
+                    _buildList(context),
+                  ],
+                );
+              } else {
+                return ListView(
+                  children: [
+                    _buildSearch(),
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(provider.message),
+                      ),
+                    ),
+                    const SizedBox(height: 100),
+                  ],
+                );
+              }
+            },
           ),
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(child: _buildList(context)),
-        ],
+    );
+  }
+
+  Widget _buildSearch() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Consumer<RestaurantsProvider>(
+        builder: (context, provider, _) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Search',
+                textAlign: TextAlign.left,
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                autofocus: false,
+                cursorColor: Colors.black,
+                decoration: const InputDecoration(
+                  hintText: 'Cari nama restoran...',
+                  fillColor: Colors.black,
+                  border: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.black),
+                    borderRadius: BorderRadius.all(
+                      Radius.circular(12),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.black),
+                    borderRadius: BorderRadius.all(
+                      Radius.circular(12),
+                    ),
+                  ),
+                ),
+                onChanged: provider.searchRestaurants,
+              )
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildList(BuildContext context) {
-    if (_filteredRestaurants.isEmpty) {
-      return const Center(child: Text('No restaurants found.'));
-    }
-    return ListView.builder(
-      shrinkWrap: true,
-      itemCount: _filteredRestaurants.length,
-      itemBuilder: (context, index) {
-        return _buildRestaurantItem(context, _filteredRestaurants[index]);
+    return Consumer<RestaurantsProvider>(
+      builder: (context, provider, child) {
+        final restaurants = provider.restaurantsResult;
+        return ListView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          shrinkWrap: true,
+          itemCount: restaurants.length,
+          itemBuilder: (context, index) {
+            return _buildRestaurantItem(context, restaurants[index]);
+          },
+        );
       },
     );
   }
@@ -99,8 +135,7 @@ class _RestaurantListPageState extends State<RestaurantListPage> {
       leading: Hero(
         tag: restaurant.pictureId,
         child: Image.network(
-          restaurant.pictureId,
-          width: 100,
+          'https://restaurant-api.dicoding.dev/images/small/${restaurant.pictureId}',
         ),
       ),
       title: Text(
@@ -133,7 +168,7 @@ class _RestaurantListPageState extends State<RestaurantListPage> {
         Navigator.pushNamed(
           context,
           RestaurantDetailPage.routeName,
-          arguments: restaurant,
+          arguments: restaurant.id,
         );
       },
     );
